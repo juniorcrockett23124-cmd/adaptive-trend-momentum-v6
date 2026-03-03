@@ -27,7 +27,7 @@ emaFast  = ta.ema(close, fastEMA)
 emaSlow  = ta.ema(close, slowEMA)
 emaTrend = ta.ema(close, trendEMA)
 rsi      = ta.rsi(close, rsiLen)
-adx      = ta.adx(adxLen)
+[diPlus, diMinus, adx] = ta.dmi(adxLen, adxLen)
 atr      = ta.atr(atrLen)
 
 inSession = not useSession or not na(time(timeframe.period, sessionStr))
