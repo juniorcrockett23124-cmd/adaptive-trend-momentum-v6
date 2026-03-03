@@ -1,0 +1,105 @@
+//@version=6
+strategy("Adaptive Trend Momentum v6", overlay=true, initial_capital=10000, pyramiding=0, commission_type=strategy.commission.percent, commission_value=0.02, calc_on_every_tick=false, process_orders_on_close=true)
+
+// =========================
+// Inputs
+// =========================
+fastEMA      = input.int(21,  "Fast EMA", minval=1)
+slowEMA      = input.int(55,  "Slow EMA", minval=2)
+trendEMA     = input.int(200, "Trend EMA", minval=20)
+rsiLen       = input.int(14,  "RSI Length", minval=2)
+rsiBullMin   = input.int(52,  "RSI Min (Long)", minval=1, maxval=100)
+rsiBearMax   = input.int(48,  "RSI Max (Short)", minval=1, maxval=100)
+adxLen       = input.int(14,  "ADX Length", minval=2)
+adxMin       = input.float(18.0, "ADX Min Trend Strength", minval=1, step=0.5)
+atrLen       = input.int(14, "ATR Length", minval=2)
+atrStopMult  = input.float(1.8, "ATR Stop Multiplier", minval=0.2, step=0.1)
+atrTPMult    = input.float(2.8, "ATR Take Profit Multiplier", minval=0.2, step=0.1)
+useSession   = input.bool(false, "Use Session Filter")
+sessionStr   = input.session("0930-1600", "Session")
+allowLongs   = input.bool(true, "Enable Long Trades")
+allowShorts  = input.bool(true, "Enable Short Trades")
+
+// =========================
+// Core Indicators
+// =========================
+emaFast  = ta.ema(close, fastEMA)
+emaSlow  = ta.ema(close, slowEMA)
+emaTrend = ta.ema(close, trendEMA)
+rsi      = ta.rsi(close, rsiLen)
+adx      = ta.adx(adxLen)
+atr      = ta.atr(atrLen)
+
+inSession = not useSession or not na(time(timeframe.period, sessionStr))
+
+// =========================
+// Regime + Entry Conditions
+// =========================
+trendUp   = close > emaTrend and emaFast > emaSlow
+trendDown = close < emaTrend and emaFast < emaSlow
+
+longCross  = ta.crossover(emaFast, emaSlow)
+shortCross = ta.crossunder(emaFast, emaSlow)
+
+longSignal  = allowLongs and inSession and trendUp and longCross and rsi > rsiBullMin and adx > adxMin
+shortSignal = allowShorts and inSession and trendDown and shortCross and rsi < rsiBearMax and adx > adxMin
+
+// =========================
+// Entries
+// =========================
+if longSignal and strategy.position_size <= 0
+    strategy.entry("Long", strategy.long)
+
+if shortSignal and strategy.position_size >= 0
+    strategy.entry("Short", strategy.short)
+
+// =========================
+// Risk Management
+// =========================
+longStop  = strategy.position_avg_price - atr * atrStopMult
+longLimit = strategy.position_avg_price + atr * atrTPMult
+shortStop = strategy.position_avg_price + atr * atrStopMult
+shortLimit= strategy.position_avg_price - atr * atrTPMult
+
+strategy.exit("Long Exit",  from_entry="Long",  stop=longStop,  limit=longLimit)
+strategy.exit("Short Exit", from_entry="Short", stop=shortStop, limit=shortLimit)
+
+// Optional trend-failure exits
+exitLongTrendFail  = strategy.position_size > 0 and close < emaSlow
+exitShortTrendFail = strategy.position_size < 0 and close > emaSlow
+
+if exitLongTrendFail
+    strategy.close("Long", comment="TrendFail")
+if exitShortTrendFail
+    strategy.close("Short", comment="TrendFail")
+
+// =========================
+// Plotting
+// =========================
+plot(emaFast,  "EMA Fast",  color=color.new(color.teal, 0), linewidth=2)
+plot(emaSlow,  "EMA Slow",  color=color.new(color.orange, 0), linewidth=2)
+plot(emaTrend, "EMA Trend", color=color.new(color.purple, 0), linewidth=2)
+
+plotshape(longSignal,  title="BUY",  style=shape.labelup,   location=location.belowbar, color=color.new(color.lime, 0), text="BUY",  textcolor=color.black, size=size.tiny)
+plotshape(shortSignal, title="SELL", style=shape.labeldown, location=location.abovebar, color=color.new(color.red, 0),  text="SELL", textcolor=color.white, size=size.tiny)
+
+bgcolor(trendUp ? color.new(color.green, 92) : trendDown ? color.new(color.red, 92) : na)
+
+// =========================
+// Alerts
+// =========================
+alertcondition(longSignal,  title="Buy Signal",  message="Adaptive Trend Momentum v6: BUY signal on {{ticker}} {{interval}}")
+alertcondition(shortSignal, title="Sell Signal", message="Adaptive Trend Momentum v6: SELL signal on {{ticker}} {{interval}}")
+
+// =========================
+// Notes for Optimization
+// =========================
+// Suggested optimization ranges:
+// fastEMA: 8-34
+// slowEMA: 34-100
+// trendEMA: 100-300
+// rsiBullMin: 50-60
+// rsiBearMax: 40-50
+// adxMin: 15-30
+// atrStopMult: 1.0-3.0
+// atrTPMult: 1.5-5.0
