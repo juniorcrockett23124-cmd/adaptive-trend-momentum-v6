@@ -1,0 +1,107 @@
+//@version=6
+strategy("Adaptive Trend Momentum v2", overlay=true, initial_capital=10000, pyramiding=0, commission_type=strategy.commission.percent, commission_value=0.02, calc_on_every_tick=false, process_orders_on_close=true)
+
+// =========================
+// Presets
+// =========================
+preset = input.string("SPY 15m", "Preset", options=["Custom", "SPY 15m", "QQQ 15m"])
+
+// Custom inputs
+fastEMA_in      = input.int(21,  "Fast EMA (Custom)", minval=1)
+slowEMA_in      = input.int(55,  "Slow EMA (Custom)", minval=2)
+trendEMA_in     = input.int(200, "Trend EMA (Custom)", minval=20)
+rsiLen_in       = input.int(14,  "RSI Length (Custom)", minval=2)
+rsiBullMin_in   = input.int(52,  "RSI Min Long (Custom)", minval=1, maxval=100)
+rsiBearMax_in   = input.int(48,  "RSI Max Short (Custom)", minval=1, maxval=100)
+adxLen_in       = input.int(14,  "ADX Length (Custom)", minval=2)
+adxMin_in       = input.float(18.0, "ADX Min (Custom)", minval=1, step=0.5)
+atrLen_in       = input.int(14, "ATR Length (Custom)", minval=2)
+atrStopMult_in  = input.float(1.8, "ATR Stop Multiplier (Custom)", minval=0.2, step=0.1)
+atrTPMult_in    = input.float(2.8, "ATR Take Profit Multiplier (Custom)", minval=0.2, step=0.1)
+
+useSession   = input.bool(false, "Use Session Filter")
+sessionStr   = input.session("0930-1600", "Session")
+allowLongs   = input.bool(true, "Enable Long Trades")
+allowShorts  = input.bool(true, "Enable Short Trades")
+
+// Preset values (SPY tuned from prior sweep)
+fastEMA_p    = preset == "SPY 15m" ? 13 : preset == "QQQ 15m" ? 21 : fastEMA_in
+slowEMA_p    = preset == "SPY 15m" ? 55 : preset == "QQQ 15m" ? 55 : slowEMA_in
+trendEMA_p   = preset == "SPY 15m" ? 200 : preset == "QQQ 15m" ? 200 : trendEMA_in
+rsiLen_p     = preset == "SPY 15m" ? 14 : preset == "QQQ 15m" ? 14 : rsiLen_in
+rsiBullMin_p = preset == "SPY 15m" ? 58 : preset == "QQQ 15m" ? 55 : rsiBullMin_in
+rsiBearMax_p = preset == "SPY 15m" ? 42 : preset == "QQQ 15m" ? 45 : rsiBearMax_in
+adxLen_p     = preset == "SPY 15m" ? 14 : preset == "QQQ 15m" ? 14 : adxLen_in
+adxMin_p     = preset == "SPY 15m" ? 18.0 : preset == "QQQ 15m" ? 20.0 : adxMin_in
+atrLen_p     = preset == "SPY 15m" ? 14 : preset == "QQQ 15m" ? 14 : atrLen_in
+atrStopMult_p= preset == "SPY 15m" ? 1.2 : preset == "QQQ 15m" ? 1.6 : atrStopMult_in
+atrTPMult_p  = preset == "SPY 15m" ? 3.5 : preset == "QQQ 15m" ? 2.8 : atrTPMult_in
+
+// =========================
+// Core Indicators
+// =========================
+emaFast  = ta.ema(close, fastEMA_p)
+emaSlow  = ta.ema(close, slowEMA_p)
+emaTrend = ta.ema(close, trendEMA_p)
+rsi      = ta.rsi(close, rsiLen_p)
+[diPlus, diMinus, adx] = ta.dmi(adxLen_p, adxLen_p)
+atr      = ta.atr(atrLen_p)
+
+inSession = not useSession or not na(time(timeframe.period, sessionStr))
+
+// =========================
+// Entry Logic
+// =========================
+trendUp   = close > emaTrend and emaFast > emaSlow
+trendDown = close < emaTrend and emaFast < emaSlow
+
+longCross  = ta.crossover(emaFast, emaSlow)
+shortCross = ta.crossunder(emaFast, emaSlow)
+
+longSignal  = allowLongs and inSession and trendUp and longCross and rsi > rsiBullMin_p and adx > adxMin_p
+shortSignal = allowShorts and inSession and trendDown and shortCross and rsi < rsiBearMax_p and adx > adxMin_p
+
+if longSignal and strategy.position_size <= 0
+    strategy.entry("Long", strategy.long)
+
+if shortSignal and strategy.position_size >= 0
+    strategy.entry("Short", strategy.short)
+
+// =========================
+// Exits
+// =========================
+longStop   = strategy.position_avg_price - atr * atrStopMult_p
+longTarget = strategy.position_avg_price + atr * atrTPMult_p
+shortStop  = strategy.position_avg_price + atr * atrStopMult_p
+shortTarget= strategy.position_avg_price - atr * atrTPMult_p
+
+strategy.exit("Long Exit", from_entry="Long", stop=longStop, limit=longTarget)
+strategy.exit("Short Exit", from_entry="Short", stop=shortStop, limit=shortTarget)
+
+exitLongTrendFail  = strategy.position_size > 0 and close < emaSlow
+exitShortTrendFail = strategy.position_size < 0 and close > emaSlow
+
+if exitLongTrendFail
+    strategy.close("Long", comment="TrendFail")
+if exitShortTrendFail
+    strategy.close("Short", comment="TrendFail")
+
+// =========================
+// Visuals + Alerts
+// =========================
+plot(emaFast,  "EMA Fast",  color=color.new(color.teal, 0), linewidth=2)
+plot(emaSlow,  "EMA Slow",  color=color.new(color.orange, 0), linewidth=2)
+plot(emaTrend, "EMA Trend", color=color.new(color.purple, 0), linewidth=2)
+
+plotshape(longSignal,  title="BUY",  style=shape.labelup,   location=location.belowbar, color=color.new(color.lime, 0), text="BUY",  textcolor=color.black, size=size.tiny)
+plotshape(shortSignal, title="SELL", style=shape.labeldown, location=location.abovebar, color=color.new(color.red, 0),  text="SELL", textcolor=color.white, size=size.tiny)
+
+bgcolor(trendUp ? color.new(color.green, 92) : trendDown ? color.new(color.red, 92) : na)
+
+alertcondition(longSignal,  title="Buy Signal",  message="Adaptive Trend Momentum v2: BUY signal on {{ticker}} {{interval}}")
+alertcondition(shortSignal, title="Sell Signal", message="Adaptive Trend Momentum v2: SELL signal on {{ticker}} {{interval}}")
+
+// Current regime helper (for screener columns/alerts)
+regime = trendUp ? "Bull" : trendDown ? "Bear" : "Neutral"
+plotchar(regime == "Bull", title="Bull Regime", char="B", location=location.bottom, color=color.new(color.green, 0), size=size.tiny)
+plotchar(regime == "Bear", title="Bear Regime", char="S", location=location.bottom, color=color.new(color.red, 0), size=size.tiny)

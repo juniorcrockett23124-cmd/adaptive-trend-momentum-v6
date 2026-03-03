@@ -11,15 +11,18 @@ Pine Script v6 strategy for TradingView with:
 
 ---
 
-## File
-- `Adaptive_Trend_Momentum_v6.pine`
+## Files
+- `Adaptive_Trend_Momentum_v6.pine` (original)
+- `Adaptive_Trend_Momentum_v2.pine` (recommended current version)
+- `screener.py` (Python stock screener + 30/60D strategy ranking)
 
 ## How to use in TradingView
 1. Open TradingView → **Pine Editor**
 2. Create a new script
-3. Paste the full content of `Adaptive_Trend_Momentum_v6.pine`
+3. Paste `Adaptive_Trend_Momentum_v2.pine` (recommended)
 4. Click **Add to chart**
 5. Open **Strategy Tester**
+6. Start with Preset = `SPY 15m` and switch to `Custom` for optimization
 
 ## 30-day and 60-day backtest
 In TradingView:
