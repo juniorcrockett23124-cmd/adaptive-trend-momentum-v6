@@ -1,0 +1,91 @@
+//@version=6
+strategy("Adaptive Trend Momentum v3", overlay=true, initial_capital=10000, pyramiding=0, commission_type=strategy.commission.percent, commission_value=0.02, calc_on_every_tick=false, process_orders_on_close=true)
+
+profile = input.string("SPY 15m (Baseline)", "Profile", options=[
+    "SPY 15m (Baseline)",
+    "UNH 5m (Top)",
+    "GS 5m (Top)",
+    "AAPL 1h (Top)",
+    "XLF 5m (Top)",
+    "XOM 15m (Top)",
+    "Custom"
+])
+
+fastEMA_in      = input.int(13,  "Fast EMA (Custom)", minval=1)
+slowEMA_in      = input.int(55,  "Slow EMA (Custom)", minval=2)
+trendEMA_in     = input.int(200, "Trend EMA (Custom)", minval=20)
+rsiLen_in       = input.int(14,  "RSI Length (Custom)", minval=2)
+rsiBullMin_in   = input.int(58,  "RSI Min Long (Custom)", minval=1, maxval=100)
+rsiBearMax_in   = input.int(42,  "RSI Max Short (Custom)", minval=1, maxval=100)
+adxLen_in       = input.int(14,  "ADX Length (Custom)", minval=2)
+adxMin_in       = input.float(18.0, "ADX Min (Custom)", minval=1, step=0.5)
+atrLen_in       = input.int(14, "ATR Length (Custom)", minval=2)
+atrStopMult_in  = input.float(1.2, "ATR Stop Multiplier (Custom)", minval=0.2, step=0.1)
+atrTPMult_in    = input.float(3.5, "ATR Take Profit Multiplier (Custom)", minval=0.2, step=0.1)
+
+useSession   = input.bool(false, "Use Session Filter")
+sessionStr   = input.session("0930-1600", "Session")
+allowLongs   = input.bool(true, "Enable Long Trades")
+allowShorts  = input.bool(true, "Enable Short Trades")
+
+isSPY  = profile == "SPY 15m (Baseline)"
+isUNH5 = profile == "UNH 5m (Top)"
+isGS5  = profile == "GS 5m (Top)"
+isAAP1 = profile == "AAPL 1h (Top)"
+isXLF5 = profile == "XLF 5m (Top)"
+isXOM1 = profile == "XOM 15m (Top)"
+
+fastEMA      = isSPY ? 13 : isUNH5 ? 8  : isGS5 ? 21 : isAAP1 ? 8  : isXLF5 ? 21 : isXOM1 ? 13 : fastEMA_in
+slowEMA      = isSPY ? 55 : isUNH5 ? 34 : isGS5 ? 55 : isAAP1 ? 55 : isXLF5 ? 34 : isXOM1 ? 34 : slowEMA_in
+trendEMA     = trendEMA_in
+rsiLen       = rsiLen_in
+rsiBullMin   = isSPY ? 58 : isUNH5 ? 55 : isGS5 ? 55 : isAAP1 ? 55 : isXLF5 ? 55 : isXOM1 ? 55 : rsiBullMin_in
+rsiBearMax   = isSPY ? 42 : isUNH5 ? 42 : isGS5 ? 45 : isAAP1 ? 45 : isXLF5 ? 45 : isXOM1 ? 42 : rsiBearMax_in
+adxLen       = adxLen_in
+adxMin       = isSPY ? 18 : isUNH5 ? 16 : isGS5 ? 18 : isAAP1 ? 16 : isXLF5 ? 16 : isXOM1 ? 18 : adxMin_in
+atrLen       = atrLen_in
+atrStopMult  = isSPY ? 1.2 : isUNH5 ? 1.2 : isGS5 ? 1.2 : isAAP1 ? 1.0 : isXLF5 ? 1.2 : isXOM1 ? 1.0 : atrStopMult_in
+atrTPMult    = isSPY ? 3.5 : isUNH5 ? 3.5 : isGS5 ? 3.5 : isAAP1 ? 2.8 : isXLF5 ? 2.8 : isXOM1 ? 3.5 : atrTPMult_in
+
+emaFast  = ta.ema(close, fastEMA)
+emaSlow  = ta.ema(close, slowEMA)
+emaTrend = ta.ema(close, trendEMA)
+rsi      = ta.rsi(close, rsiLen)
+[_, _, adx] = ta.dmi(adxLen, adxLen)
+atr      = ta.atr(atrLen)
+
+inSession = not useSession or not na(time(timeframe.period, sessionStr))
+
+trendUp   = close > emaTrend and emaFast > emaSlow
+trendDown = close < emaTrend and emaFast < emaSlow
+longCross  = ta.crossover(emaFast, emaSlow)
+shortCross = ta.crossunder(emaFast, emaSlow)
+
+longSignal  = allowLongs and inSession and trendUp and longCross and rsi > rsiBullMin and adx > adxMin
+shortSignal = allowShorts and inSession and trendDown and shortCross and rsi < rsiBearMax and adx > adxMin
+
+if longSignal and strategy.position_size <= 0
+    strategy.entry("Long", strategy.long)
+if shortSignal and strategy.position_size >= 0
+    strategy.entry("Short", strategy.short)
+
+longStop   = strategy.position_avg_price - atr * atrStopMult
+longTarget = strategy.position_avg_price + atr * atrTPMult
+shortStop  = strategy.position_avg_price + atr * atrStopMult
+shortTarget= strategy.position_avg_price - atr * atrTPMult
+strategy.exit("Long Exit", from_entry="Long", stop=longStop, limit=longTarget)
+strategy.exit("Short Exit", from_entry="Short", stop=shortStop, limit=shortTarget)
+
+if strategy.position_size > 0 and close < emaSlow
+    strategy.close("Long", comment="TrendFail")
+if strategy.position_size < 0 and close > emaSlow
+    strategy.close("Short", comment="TrendFail")
+
+plot(emaFast,  "EMA Fast",  color=color.new(color.teal, 0), linewidth=2)
+plot(emaSlow,  "EMA Slow",  color=color.new(color.orange, 0), linewidth=2)
+plot(emaTrend, "EMA Trend", color=color.new(color.purple, 0), linewidth=2)
+plotshape(longSignal,  title="BUY",  style=shape.labelup,   location=location.belowbar, color=color.new(color.lime, 0), text="BUY",  textcolor=color.black, size=size.tiny)
+plotshape(shortSignal, title="SELL", style=shape.labeldown, location=location.abovebar, color=color.new(color.red, 0),  text="SELL", textcolor=color.white, size=size.tiny)
+bgcolor(trendUp ? color.new(color.green, 92) : trendDown ? color.new(color.red, 92) : na)
+alertcondition(longSignal,  title="Buy Signal",  message="Adaptive Trend Momentum v3: BUY signal on {{ticker}} {{interval}}")
+alertcondition(shortSignal, title="Sell Signal", message="Adaptive Trend Momentum v3: SELL signal on {{ticker}} {{interval}}")
